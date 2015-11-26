@@ -303,7 +303,4 @@ def run_on(port):
 
 if __name__ == "__main__":
     port = int(sys.argv[1]) if len(sys.argv) > 1 else 8000
-    server = Thread(target=run_on, args=[port])
-    server.daemon = True
-    server.start()
-    signal.pause()  # Wait for interrupt signal (KeyboardInterrupt)
+    run_on(port)
