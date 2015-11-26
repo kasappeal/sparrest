@@ -217,6 +217,15 @@ If the file does not exist, a 404 HTTP error is returned.
 
 ## Changelog
 
+### 0.2 - Creed
+
+##### BUGFIXES
+* Now it runs on Windows too
+* Content-Type header validation changed to play with AngularJS
+
+##### CHANGES
+* When you POST a single JSON object, the response is a single JSON object instead of a JSON list/array with the object.
+
 ### 0.1 - Balboa
 
 * First version, started in the train from Madrid to Valencia for the PyConES 2015.
