@@ -51,7 +51,7 @@ class SparrestHandler(SimpleHTTPRequestHandler):
 
     def is_valid_content_type(self):
         """Checks if the set content type is valid"""
-        return self.headers.get('content-type', 'text/plain').lower() == 'application/json'
+        return 'application/json' in self.headers.get('content-type', 'text/plain').lower()
 
     def is_valid_json(self):
         """Checks if the body content is a valid JSON"""
@@ -229,7 +229,7 @@ class SparrestHandler(SimpleHTTPRequestHandler):
                     fp = open(new_file_name, 'w')
                     json.dump(item, fp)
                     fp.close()
-                self.write_response(data, 201)
+                self.write_response(data[0] if len(data) == 1 else data, 201)
             except IOError as e:
                 if e.errno == errno.EACCES:
                     self.write_no_access_permission_to_file_response(resource_path)
