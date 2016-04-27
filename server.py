@@ -289,18 +289,19 @@ class SparrestHandler(SimpleHTTPRequestHandler):
                         raise
 
 
-def run_on(port):
+def run_on(ip, port):
     """
     Starts the HTTP server in the given port
     :param port: port to run the http server
     :return: void
     """
-    print("Starting a server on port {0}".format(port))
-    server_address = ('localhost', port)
+    print "Starting a server on", ip, ":", port
+    server_address = (ip, port)
     httpd = HTTPServer(server_address, SparrestHandler)
     httpd.serve_forever()
 
 
 if __name__ == "__main__":
-    port = int(sys.argv[1]) if len(sys.argv) > 1 else 8000
-    run_on(port)
+    port = int(sys.argv[2]) if len(sys.argv) > 2 else 8000
+    ip = str(sys.argv[1]) if len(sys.argv) > 1 else "localhost"
+    run_on(ip, port)
