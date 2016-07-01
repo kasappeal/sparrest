@@ -3,8 +3,6 @@ import os
 import sys
 import json
 import errno
-import signal
-from threading import Thread
 if sys.version_info > (3, 0):
     from http.server import HTTPServer, SimpleHTTPRequestHandler
 else:
@@ -295,13 +293,21 @@ def run_on(ip, port):
     :param port: port to run the http server
     :return: void
     """
-    print "Starting a server on", ip, ":", port
+    print("Starting a server on port {0}. Use CNTRL+C to stop the server.".format(port))
     server_address = (ip, port)
-    httpd = HTTPServer(server_address, SparrestHandler)
-    httpd.serve_forever()
+    try:
+        httpd = HTTPServer(server_address, SparrestHandler)
+        httpd.serve_forever()
+    except OSError as e:
+        if e.errno == 48:  # port already in use
+            print("ERROR: The port {0} is already used by another process.".format(port))
+        else:
+            raise OSError
+    except KeyboardInterrupt as interrupt:
+        print("Server stopped. Bye bye!")
 
 
 if __name__ == "__main__":
     port = int(sys.argv[2]) if len(sys.argv) > 2 else 8000
-    ip = str(sys.argv[1]) if len(sys.argv) > 1 else "localhost"
+    ip = str(sys.argv[1]) if len(sys.argv) > 1 else "127.0.0.1"
     run_on(ip, port)
