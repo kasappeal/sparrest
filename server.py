@@ -280,7 +280,7 @@ class SparrestHandler(SimpleHTTPRequestHandler):
             self.write_invalid_api_uri_format_response()
         elif not self.is_valid_content_type():
             self.write_invalid_content_type_response()
-        elif not self.is_valid_json():
+        elif self.is_json_content_type() and not self.is_valid_json():
             self.write_invalid_content_type_response()
         else:
             resource = resource_parts[0]
@@ -296,6 +296,41 @@ class SparrestHandler(SimpleHTTPRequestHandler):
                     json.dump(data, fp)
                     fp.close()
                     self.write_response(data, 200)
+                except IOError as e:
+                    if e.errno == errno.EACCES:
+                        self.write_no_access_permission_to_file_response(resource_path)
+                    else:  # Not a permission error.
+                        raise
+
+    def do_PATCH(self):
+        """
+        Process a PATCH request
+        """
+        resource_parts = self.get_resource_parts()
+        if len(resource_parts) != 2:
+            self.write_invalid_api_uri_format_response()
+        elif not self.is_valid_content_type():
+            self.write_invalid_content_type_response()
+        elif self.is_json_content_type() and not self.is_valid_json():
+            self.write_invalid_content_type_response()
+        else:
+            resource = resource_parts[0]
+            resource_id = resource_parts[1]
+            resource_path = os.path.join(API_DATA_PATH, resource, resource_id)
+            if not os.path.exists(resource_path):
+                self.write_not_found_response(resource, resource_id)
+            else:
+                try:
+                    data = self.get_data()
+                    fp = open(resource_path, 'r')
+                    item = json.load(fp)
+                    fp.close()
+                    item.update(data)
+                    item[API_ID_FIELD] = resource_id
+                    fp = open(resource_path, 'w')
+                    json.dump(item, fp)
+                    fp.close()
+                    self.write_response(item, 200)
                 except IOError as e:
                     if e.errno == errno.EACCES:
                         self.write_no_access_permission_to_file_response(resource_path)
