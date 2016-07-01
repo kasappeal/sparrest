@@ -1,13 +1,16 @@
 # -*- coding: utf-8 -*-
+import cgi
 import os
 import sys
 import json
 import errno
 if sys.version_info > (3, 0):
     from http.server import HTTPServer, SimpleHTTPRequestHandler
+    from urllib.parse import parse_qs
 else:
     from BaseHTTPServer import HTTPServer
     from SimpleHTTPServer import SimpleHTTPRequestHandler
+    from urlparse import parse_qs
 
 __version__ = '0.1'
 __author__ = 'Alberto Casero (@KasAppeal)'
@@ -29,7 +32,7 @@ class SparrestHandler(SimpleHTTPRequestHandler):
     """
     Manage the request received
     """
-    server_version = "RestCampHTTPServer/" + __version__
+    server_version = "SparRESTServer/" + __version__
     data = None
     content = None
 
@@ -37,7 +40,7 @@ class SparrestHandler(SimpleHTTPRequestHandler):
         """Checks if the request is referred to an API item"""
         return self.path[:len(API_PATH)] == API_PATH
 
-    def get_content(self):
+    def get_content(self, decode=True):
         """Reads the request body and returns it"""
         if not self.content:
             try:
@@ -45,27 +48,61 @@ class SparrestHandler(SimpleHTTPRequestHandler):
             except ValueError:
                 length = 0
             self.content = self.rfile.read(length) if length > 0 else ''
-        return self.content.decode('utf-8')
+        return self.content.decode('utf-8') if decode else self.content
 
     def is_valid_content_type(self):
         """Checks if the set content type is valid"""
+        return self.is_json_content_type() or self.is_form_urlencoded_data_content_type() or \
+               self.is_multipart_form_data_content_type()
+
+    def is_json_content_type(self):
+        """Checks if the set content type is application/json"""
         return 'application/json' in self.headers.get('content-type', 'text/plain').lower()
+
+    def is_form_urlencoded_data_content_type(self):
+        """Checks if the set content type is form url encoded"""
+        return 'application/x-www-form-urlencoded' in self.headers.get('content-type', 'text/plain').lower()
+
+    def is_multipart_form_data_content_type(self):
+        """Checks if the set content type is multipart/form-data"""
+        return 'multipart/form-data' in self.headers.get('content-type', 'text/plain').lower()
 
     def is_valid_json(self):
         """Checks if the body content is a valid JSON"""
         data = self.get_data()
         return data is not None
 
+    def get_multipart_boundary(self):
+        """Returns the multipart boundary"""
+        parts = self.headers.get('content-type', '').split('boundary=')
+        return parts[1] if len(parts) > 1 else ''
+
     def get_data(self):
         """
-        Returns the JSON data converted to a dict if the Content-Type header is application JSON and the JSON is valid.
-        Otherwise, returns None
+        Returns the JSON data converted to a dict depending of the content-type sent. Only if data format is correct,
+        returns the dict, otherwise, returns None
         """
         if self.data is None:
-            try:
-                self.data = json.loads(self.get_content())
-            except ValueError:
-                self.data = None
+            if self.is_json_content_type():
+                try:
+                    self.data = json.loads(self.get_content())
+                except ValueError:
+                    self.data = None
+            elif self.is_form_urlencoded_data_content_type():
+                parsed_data = parse_qs(self.get_content(), keep_blank_values=True)
+                self.data = dict(map(
+                    lambda t: (t[0], t[1][0] if type(t[1]) == list and len(t[1]) == 1 else t[1]), parsed_data.items()
+                ))
+            elif self.is_multipart_form_data_content_type():
+                ctype, pdict = cgi.parse_header(self.headers.get('content-type'))
+                if 'boundary' in pdict:
+                    pdict['boundary'] = pdict['boundary'].encode()
+                parsed_data = cgi.parse_multipart(self.rfile, pdict)
+                self.data = dict(map(
+                    lambda t: (
+                        t[0], t[1][0].decode('utf-8') if type(t[1]) == list and len(t[1]) == 1 else t[1].decode('utf-8')
+                    ), parsed_data.items()
+                ))
         return self.data
 
     def get_resource_parts(self):
@@ -194,7 +231,7 @@ class SparrestHandler(SimpleHTTPRequestHandler):
             self.write_method_not_allowed_response()
         elif not self.is_valid_content_type():
             self.write_invalid_content_type_response()
-        elif not self.is_valid_json():
+        elif self.is_json_content_type() and not self.is_valid_json():
             self.write_invalid_content_type_response()
         elif len(resource_parts) != 1:
             self.write_invalid_api_uri_format_response()
