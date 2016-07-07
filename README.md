@@ -19,7 +19,20 @@ python server.py
 And here we go!
 
 ```bash
-Starting a server on port 8000
+Starting a server on port 8000. Use CNTRL+C to stop the server.
+```
+
+You can run the server in a different IP address and port by using:
+
+```bash
+python server.py <IP> <PORT>
+```
+
+For example:
+
+```bash
+python server.py 0.0.0.0 # runs the server in 0.0.0.0:8000
+python server.py 0.0.0.0 1234 # runs the server in 0.0.0.0:1234
 ```
 
 ### Creating a welcome page
@@ -177,6 +190,41 @@ We have a `404 Not found` HTTP response with the content:
 }
 ```
 
+
+### Ordering
+
+You can specify what field or fields you want to retrieve a resource ordered by using the `_order` query parameter. For example:
+
+```bash
+# Return fighters ordered by name field ascending.
+curl http://localhost:8000/api/fighters/?_order=name 
+```
+
+```bash
+# Return fighters ordered by name field descending.
+curl http://localhost:8000/api/fighters/?_order=-name 
+```
+
+```bash
+# Return fighters ordered by name ascending and then by style descending.
+curl http://localhost:8000/api/fighters/?_order= name,-style
+```
+
+### Selecting fields to retrieve
+
+You can specify what field or fields you want to retrieve from a resource in a `GET` request by using the `_fields` query parameter. For example:
+
+
+```bash
+# Returns only the fighters id and name
+curl http://localhost:8000/api/fighters/?_fields=id,name 
+```
+
+```bash
+# Returns only the fighter name and style
+curl http://localhost:8000/api/fighters/1?_fields=name,style 
+```
+
 ## Available API endpoints
 
 ### `GET /api/<resource_name>`
@@ -189,12 +237,13 @@ If the folder does not exist, a 404 HTTP error is returned.
 
 It creates a new item in the **db/\<resource_name>** (creating the **db/\<resource_name>** folder if it doesn't exist). 
 
-Is mandatory to send the **Content-Type: application/json** header to the request and the body must have a **valid JSON format**.
+Is mandatory to send the a valid **Content-Type** header to the request and the body must have a **valid format**.
 
 It can receive a JSON object or a JSON array of JSON objects.
 
 If the folder does not exist, a 404 HTTP error is returned.
-If the *Content-Type: application/json* or the *JSON body is not valid* header is not set, a 400 HTTP error is returned.
+
+If the *Content-Type* or the *request body is not valid* header is not set, a 400 HTTP error is returned.
 
 ### `GET /api/<resource_name>/<resource_id>`
 
@@ -207,7 +256,16 @@ If the file does not exist, a 404 HTTP error is returned.
 Replaces the content stored in the file **db/\<resource_name>/\<resource_id>**) by the body of the request.
 
 If the file does not exist, a 404 HTTP error is returned.
-If the *Content-Type: application/json* or the *JSON body is not valid* header is not set, a 400 HTTP error is returned.
+
+If the *Content-Type* or the *request body is not valid* header is not set, a 400 HTTP error is returned.
+
+
+### `PATCH /api/<resource_name>/<resource_id>`
+
+Update only the keys sent for the content stored in the file **db/\<resource_name>/\<resource_id>**) by the value sent.
+
+If the file does not exist, a 404 HTTP error is returned.
+If the *Content-Type* or the *request body is not valid* header is not set, a 400 HTTP error is returned.
 
 ### `DELETE /api/<resource_name>/<resource_id>`
 
@@ -215,7 +273,27 @@ Deletes the file **db/\<resource_name>/\<resource_id>**).
 
 If the file does not exist, a 404 HTTP error is returned.
 
+
+## Suported Content-Types
+
+* `application/json`
+* `application/x-www-form-urlencoded`
+* `multipart/form-data`
+
+**NOTE:** SparREST will always respond in JSON. SparREST loves JSON.
+
 ## Changelog
+
+### 0.3 - Drago
+
+##### CHANGES
+* Select the IP address to run de server (special thanks to @dfreniche for his contribution)
+* PATCH method supported
+* Added support for `application/x-www-form-urlencoded` and `multipart/form-data` content types
+* Ordering feature
+* Fields selection feature
+* Documentation improvements
+* Minor bugfixes
 
 ### 0.2 - Creed
 
