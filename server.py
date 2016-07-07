@@ -18,6 +18,8 @@ __author__ = 'Alberto Casero (@KasAppeal)'
 API_ID_FIELD = 'id'
 API_PATH = '/api/'
 API_DATA_PATH = 'db'
+FIELDS_TO_RECOVER = '_fields'
+ORDERING_FIELDS = '_order'
 
 
 def is_int(s):
@@ -117,7 +119,7 @@ class SparrestHandler(SimpleHTTPRequestHandler):
         if len(parts_list) <= 0:
             return []
 
-        return list(filter(lambda x: x.replace(' ', '') != '', parts_list[0].split('/')))
+        return list(filter(lambda x: x.replace(' ', '') != '' and x[0] != '?', parts_list[0].split('/')))
 
     def write_response(self, data, code=200):
         """
@@ -161,6 +163,37 @@ class SparrestHandler(SimpleHTTPRequestHandler):
                         self.write_no_access_permission_to_file_response(file_path)
                     else:  # Not a permission error.
                         raise
+
+            query_parts = self.path.split('?')
+            if len(query_parts) > 1:
+                query = parse_qs(query_parts[1], keep_blank_values=True)
+
+                # filtering results
+                for key in query:
+                    if key in (FIELDS_TO_RECOVER, ORDERING_FIELDS):
+                        continue
+                    value = query[key]
+                    if type(value) == list and len(value) == 1:
+                        filter_value = value[0]
+                        response_items = list(filter(lambda x: x.get(key, None) == filter_value, response_items))
+
+                # fields to recover
+                fields_to_recover = list(filter(lambda x: x.strip() != '', query.get(FIELDS_TO_RECOVER, '').split(',')))
+                if len(fields_to_recover) > 0:
+                    response_items = map(lambda x: {field: x[field] for field in fields_to_recover}, response_items)
+
+                # order
+                possible_fields = query.get(ORDERING_FIELDS, list())
+                if len(possible_fields) > 0:
+                    ordering_fields = list(filter(lambda x: x.strip() != '', possible_fields[0].split(',')))
+                    for field in ordering_fields:
+                        if field[0] == "-":
+                            reverse = True
+                            field = field[1:]
+                        else:
+                            reverse = False
+                        response_items = sorted(response_items, key=lambda x: x.get(field, ''), reverse=reverse)
+
             self.write_response(response_items, 200)
 
     def process_get_detail_resource_request(self, resource, resource_id):
