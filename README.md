@@ -207,7 +207,7 @@ curl http://localhost:8000/api/fighters/?_order=-name
 
 ```bash
 # Return fighters ordered by name ascending and then by style descending.
-curl http://localhost:8000/api/fighters/?_order= name,-style
+curl http://localhost:8000/api/fighters/?_order=name,-style
 ```
 
 ### Selecting fields to retrieve
@@ -273,14 +273,27 @@ Deletes the file **db/\<resource_name>/\<resource_id>**).
 
 If the file does not exist, a 404 HTTP error is returned.
 
-
-## Suported Content-Types
+## Supported Content-Types
 
 * `application/json`
 * `application/x-www-form-urlencoded`
 * `multipart/form-data`
 
 **NOTE:** SparREST will always respond in JSON. SparREST loves JSON.
+
+
+## Uploading files
+
+Just send a POST to any resource with `multipart/form-data` Content-type (and format) and SparREST will manage the file upload by uploading the file to the `uploads` folder (automatically created) and returning the uploaded file URL as value of the JSON field response. Example:
+
+```json
+{
+  "id": 31,
+  "style": "Free Style",
+  "name": "Bud Spencer",
+  "photo": "/uploads/f0ec12a8-445e-11e6-88f7-a45e60dc3607.png"
+}
+```
 
 ## Changelog
 
@@ -292,6 +305,7 @@ If the file does not exist, a 404 HTTP error is returned.
 * Added support for `application/x-www-form-urlencoded` and `multipart/form-data` content types
 * Ordering feature
 * Fields selection feature
+* File uploads
 * Documentation improvements
 * Minor bugfixes
 
