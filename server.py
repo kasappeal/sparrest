@@ -1,15 +1,16 @@
 # -*- coding: utf-8 -*-
+import cgi
 import os
 import sys
 import json
 import errno
-import signal
-from threading import Thread
 if sys.version_info > (3, 0):
     from http.server import HTTPServer, SimpleHTTPRequestHandler
+    from urllib.parse import parse_qs
 else:
     from BaseHTTPServer import HTTPServer
     from SimpleHTTPServer import SimpleHTTPRequestHandler
+    from urlparse import parse_qs
 
 __version__ = '0.1'
 __author__ = 'Alberto Casero (@KasAppeal)'
@@ -17,6 +18,8 @@ __author__ = 'Alberto Casero (@KasAppeal)'
 API_ID_FIELD = 'id'
 API_PATH = '/api/'
 API_DATA_PATH = 'db'
+FIELDS_TO_RECOVER = '_fields'
+ORDERING_FIELDS = '_order'
 
 
 def is_int(s):
@@ -31,7 +34,7 @@ class SparrestHandler(SimpleHTTPRequestHandler):
     """
     Manage the request received
     """
-    server_version = "RestCampHTTPServer/" + __version__
+    server_version = "SparRESTServer/" + __version__
     data = None
     content = None
 
@@ -39,7 +42,7 @@ class SparrestHandler(SimpleHTTPRequestHandler):
         """Checks if the request is referred to an API item"""
         return self.path[:len(API_PATH)] == API_PATH
 
-    def get_content(self):
+    def get_content(self, decode=True):
         """Reads the request body and returns it"""
         if not self.content:
             try:
@@ -47,27 +50,61 @@ class SparrestHandler(SimpleHTTPRequestHandler):
             except ValueError:
                 length = 0
             self.content = self.rfile.read(length) if length > 0 else ''
-        return self.content.decode('utf-8')
+        return self.content.decode('utf-8') if decode else self.content
 
     def is_valid_content_type(self):
         """Checks if the set content type is valid"""
+        return self.is_json_content_type() or self.is_form_urlencoded_data_content_type() or \
+               self.is_multipart_form_data_content_type()
+
+    def is_json_content_type(self):
+        """Checks if the set content type is application/json"""
         return 'application/json' in self.headers.get('content-type', 'text/plain').lower()
+
+    def is_form_urlencoded_data_content_type(self):
+        """Checks if the set content type is form url encoded"""
+        return 'application/x-www-form-urlencoded' in self.headers.get('content-type', 'text/plain').lower()
+
+    def is_multipart_form_data_content_type(self):
+        """Checks if the set content type is multipart/form-data"""
+        return 'multipart/form-data' in self.headers.get('content-type', 'text/plain').lower()
 
     def is_valid_json(self):
         """Checks if the body content is a valid JSON"""
         data = self.get_data()
         return data is not None
 
+    def get_multipart_boundary(self):
+        """Returns the multipart boundary"""
+        parts = self.headers.get('content-type', '').split('boundary=')
+        return parts[1] if len(parts) > 1 else ''
+
     def get_data(self):
         """
-        Returns the JSON data converted to a dict if the Content-Type header is application JSON and the JSON is valid.
-        Otherwise, returns None
+        Returns the JSON data converted to a dict depending of the content-type sent. Only if data format is correct,
+        returns the dict, otherwise, returns None
         """
         if self.data is None:
-            try:
-                self.data = json.loads(self.get_content())
-            except ValueError:
-                self.data = None
+            if self.is_json_content_type():
+                try:
+                    self.data = json.loads(self.get_content())
+                except ValueError:
+                    self.data = None
+            elif self.is_form_urlencoded_data_content_type():
+                parsed_data = parse_qs(self.get_content(), keep_blank_values=True)
+                self.data = dict(map(
+                    lambda t: (t[0], t[1][0] if type(t[1]) == list and len(t[1]) == 1 else t[1]), parsed_data.items()
+                ))
+            elif self.is_multipart_form_data_content_type():
+                ctype, pdict = cgi.parse_header(self.headers.get('content-type'))
+                if 'boundary' in pdict:
+                    pdict['boundary'] = pdict['boundary'].encode()
+                parsed_data = cgi.parse_multipart(self.rfile, pdict)
+                self.data = dict(map(
+                    lambda t: (
+                        t[0], t[1][0].decode('utf-8') if type(t[1]) == list and len(t[1]) == 1 else t[1].decode('utf-8')
+                    ), parsed_data.items()
+                ))
         return self.data
 
     def get_resource_parts(self):
@@ -82,7 +119,7 @@ class SparrestHandler(SimpleHTTPRequestHandler):
         if len(parts_list) <= 0:
             return []
 
-        return list(filter(lambda x: x.replace(' ', '') != '', parts_list[0].split('/')))
+        return list(filter(lambda x: x.replace(' ', '') != '' and x[0] != '?', parts_list[0].split('/')))
 
     def write_response(self, data, code=200):
         """
@@ -126,6 +163,37 @@ class SparrestHandler(SimpleHTTPRequestHandler):
                         self.write_no_access_permission_to_file_response(file_path)
                     else:  # Not a permission error.
                         raise
+
+            query_parts = self.path.split('?')
+            if len(query_parts) > 1:
+                query = parse_qs(query_parts[1], keep_blank_values=True)
+
+                # filtering results
+                for key in query:
+                    if key in (FIELDS_TO_RECOVER, ORDERING_FIELDS):
+                        continue
+                    value = query[key]
+                    if type(value) == list and len(value) == 1:
+                        filter_value = value[0]
+                        response_items = list(filter(lambda x: x.get(key, None) == filter_value, response_items))
+
+                # fields to recover
+                fields_to_recover = list(filter(lambda x: x.strip() != '', query.get(FIELDS_TO_RECOVER, '').split(',')))
+                if len(fields_to_recover) > 0:
+                    response_items = map(lambda x: {field: x[field] for field in fields_to_recover}, response_items)
+
+                # order
+                possible_fields = query.get(ORDERING_FIELDS, list())
+                if len(possible_fields) > 0:
+                    ordering_fields = list(filter(lambda x: x.strip() != '', possible_fields[0].split(',')))
+                    for field in ordering_fields:
+                        if field[0] == "-":
+                            reverse = True
+                            field = field[1:]
+                        else:
+                            reverse = False
+                        response_items = sorted(response_items, key=lambda x: x.get(field, ''), reverse=reverse)
+
             self.write_response(response_items, 200)
 
     def process_get_detail_resource_request(self, resource, resource_id):
@@ -196,7 +264,7 @@ class SparrestHandler(SimpleHTTPRequestHandler):
             self.write_method_not_allowed_response()
         elif not self.is_valid_content_type():
             self.write_invalid_content_type_response()
-        elif not self.is_valid_json():
+        elif self.is_json_content_type() and not self.is_valid_json():
             self.write_invalid_content_type_response()
         elif len(resource_parts) != 1:
             self.write_invalid_api_uri_format_response()
@@ -245,7 +313,7 @@ class SparrestHandler(SimpleHTTPRequestHandler):
             self.write_invalid_api_uri_format_response()
         elif not self.is_valid_content_type():
             self.write_invalid_content_type_response()
-        elif not self.is_valid_json():
+        elif self.is_json_content_type() and not self.is_valid_json():
             self.write_invalid_content_type_response()
         else:
             resource = resource_parts[0]
@@ -261,6 +329,41 @@ class SparrestHandler(SimpleHTTPRequestHandler):
                     json.dump(data, fp)
                     fp.close()
                     self.write_response(data, 200)
+                except IOError as e:
+                    if e.errno == errno.EACCES:
+                        self.write_no_access_permission_to_file_response(resource_path)
+                    else:  # Not a permission error.
+                        raise
+
+    def do_PATCH(self):
+        """
+        Process a PATCH request
+        """
+        resource_parts = self.get_resource_parts()
+        if len(resource_parts) != 2:
+            self.write_invalid_api_uri_format_response()
+        elif not self.is_valid_content_type():
+            self.write_invalid_content_type_response()
+        elif self.is_json_content_type() and not self.is_valid_json():
+            self.write_invalid_content_type_response()
+        else:
+            resource = resource_parts[0]
+            resource_id = resource_parts[1]
+            resource_path = os.path.join(API_DATA_PATH, resource, resource_id)
+            if not os.path.exists(resource_path):
+                self.write_not_found_response(resource, resource_id)
+            else:
+                try:
+                    data = self.get_data()
+                    fp = open(resource_path, 'r')
+                    item = json.load(fp)
+                    fp.close()
+                    item.update(data)
+                    item[API_ID_FIELD] = resource_id
+                    fp = open(resource_path, 'w')
+                    json.dump(item, fp)
+                    fp.close()
+                    self.write_response(item, 200)
                 except IOError as e:
                     if e.errno == errno.EACCES:
                         self.write_no_access_permission_to_file_response(resource_path)
@@ -295,13 +398,21 @@ def run_on(ip, port):
     :param port: port to run the http server
     :return: void
     """
-    print "Starting a server on", ip, ":", port
+    print("Starting a server on port {0}. Use CNTRL+C to stop the server.".format(port))
     server_address = (ip, port)
-    httpd = HTTPServer(server_address, SparrestHandler)
-    httpd.serve_forever()
+    try:
+        httpd = HTTPServer(server_address, SparrestHandler)
+        httpd.serve_forever()
+    except OSError as e:
+        if e.errno == 48:  # port already in use
+            print("ERROR: The port {0} is already used by another process.".format(port))
+        else:
+            raise OSError
+    except KeyboardInterrupt as interrupt:
+        print("Server stopped. Bye bye!")
 
 
 if __name__ == "__main__":
     port = int(sys.argv[2]) if len(sys.argv) > 2 else 8000
-    ip = str(sys.argv[1]) if len(sys.argv) > 1 else "localhost"
+    ip = str(sys.argv[1]) if len(sys.argv) > 1 else "127.0.0.1"
     run_on(ip, port)
