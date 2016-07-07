@@ -1,9 +1,13 @@
 # -*- coding: utf-8 -*-
 import cgi
-import os
-import sys
-import json
 import errno
+import json
+import os
+import re
+import sys
+from io import BytesIO
+from uuid import uuid1
+
 if sys.version_info > (3, 0):
     from http.server import HTTPServer, SimpleHTTPRequestHandler
     from urllib.parse import parse_qs
@@ -11,6 +15,7 @@ else:
     from BaseHTTPServer import HTTPServer
     from SimpleHTTPServer import SimpleHTTPRequestHandler
     from urlparse import parse_qs
+
 
 __version__ = '0.1'
 __author__ = 'Alberto Casero (@KasAppeal)'
@@ -20,6 +25,7 @@ API_PATH = '/api/'
 API_DATA_PATH = 'db'
 FIELDS_TO_RECOVER = '_fields'
 ORDERING_FIELDS = '_order'
+UPLOADS_PATH = 'uploads'
 
 
 def is_int(s):
@@ -99,12 +105,25 @@ class SparrestHandler(SimpleHTTPRequestHandler):
                 ctype, pdict = cgi.parse_header(self.headers.get('content-type'))
                 if 'boundary' in pdict:
                     pdict['boundary'] = pdict['boundary'].encode()
-                parsed_data = cgi.parse_multipart(self.rfile, pdict)
-                self.data = dict(map(
-                    lambda t: (
-                        t[0], t[1][0].decode('utf-8') if type(t[1]) == list and len(t[1]) == 1 else t[1].decode('utf-8')
-                    ), parsed_data.items()
-                ))
+                content = self.get_content(decode=False)
+                filenames = re.findall(r'filename="(.*?)"', str(content), re.IGNORECASE | re.DOTALL | re.MULTILINE)
+                parsed_data = cgi.parse_multipart(BytesIO(content), pdict)
+                self.data = {}
+                for key in parsed_data:
+                    parsed_item = parsed_data[key]
+                    if type(parsed_item) == list:
+                        for content in parsed_item:
+                            try:
+                                self.data[key] = parsed_item[0].decode('utf-8')
+                            except UnicodeDecodeError as e:
+                                # we assume that are files
+                                try:
+                                    filename = filenames.pop(0)
+                                except IndexError as e:
+                                    filename = None
+                                self.data[key] = self.save_as_file(content, filename)
+                    else:
+                        self.data[key] = parsed_item
         return self.data
 
     def get_resource_parts(self):
@@ -224,8 +243,9 @@ class SparrestHandler(SimpleHTTPRequestHandler):
         self.write_response({405: 'Method not allowed'}, 405)
 
     def write_invalid_content_type_response(self):
-        """Writes the HTTP 400 Bad request error response to set the content-type header to application/json"""
-        self.write_response({400: 'Review your Content-Type header. I only speak application/json bro.'}, 400)
+        """Writes the HTTP 400 Bad request error response to set the content-type header to a valid content type"""
+        self.write_response({400: 'Review your Content-Type header. I only speak: application/json, '
+                                  'application/x-www-form-urlencoded or multipart/form-data bro.'}, 400)
 
     def write_no_access_permission_to_file_response(self, file_path):
         """Writes the HTTP 403 Forbidden error response when trying to accessing a file without permission"""
@@ -241,6 +261,30 @@ class SparrestHandler(SimpleHTTPRequestHandler):
             self.write_response({404: 'Resource {0} not found'.format(resource)}, 404)
         else:
             self.write_response({404: 'Resource not found'}, 404)
+
+    def save_as_file(self, content, filename=None):
+        """Saves the content as a file in the uploads folder and returns the whole URL"""
+        try:
+            extension = u"." + filename.split('.')[-1] if filename and len(filename) > 0 else ''
+            filename = str(uuid1()) + extension
+            file_path = os.path.join(UPLOADS_PATH, filename)
+            if not os.path.exists(UPLOADS_PATH):
+                try:
+                    os.makedirs(UPLOADS_PATH)
+                except IOError as e:
+                    if e.errno == errno.EACCES:
+                        self.write_no_access_permission_to_file_response(file_path)
+                    else:  # Not a permission error.
+                        raise
+            fp = open(file_path, 'wb')
+            fp.write(content)
+            fp.close()
+            return "/{0}/{1}".format(UPLOADS_PATH, filename)
+        except IOError as e:
+            if e.errno == errno.EACCES:
+                self.write_no_access_permission_to_file_response(file_path)
+            else:  # Not a permission error.
+                raise
 
     def do_GET(self):
         """Process a GET request"""
