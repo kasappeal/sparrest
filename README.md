@@ -300,7 +300,7 @@ Just send a POST to any resource with `multipart/form-data` Content-type (and fo
 ### 0.3 - Drago
 
 ##### CHANGES
-* Select the IP address to run de server (special thanks to @dfreniche for his contribution)
+* Select the IP address to run the server (special thanks to @dfreniche for his contribution)
 * PATCH method supported
 * Added support for `application/x-www-form-urlencoded` and `multipart/form-data` content types
 * Ordering feature
